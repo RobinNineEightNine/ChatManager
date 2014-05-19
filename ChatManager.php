@@ -3,7 +3,7 @@
 /*
 __PocketMine Plugin__
 name=ChatManager
-version=1.0
+version=1.0b
 description=Very simple chat manager.
 author=Lambo
 class=cmanager
@@ -135,8 +135,8 @@ class cmanager implements Plugin{
                 }else $player->sendChat("You are muted!");
             }else{
                 if(!in_array($player->username,$this->mutedPlayers)){
-                    if($data["message"] <= $this->config["max-length for messages"]){
-                        if($data["message"] > $this->config["min-length for messages"]){
+                    if(strlen($data["message"]) <= $this->config["max-length for messages"]){
+                        if(strlen($data["message"]) > $this->config["min-length for messages"]){
                             if($this->strposa($data["message"],$this->blockedWords->get("blocked-words"))){
                                 $player->sendChat("Your message has been blocked.");
                             }else foreach($this->api->player->getAll() as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$d=true;
@@ -180,7 +180,7 @@ class cmanager implements Plugin{
             $m=null;
             if($this->automessage->get("enabled")){
                 if($this->msgcount == count($this->automessage->get("messages"))) $this->msgcount = 0;
-                foreach($this->api->player->getAll() as $p) $p->sendChat($this->automessage->get("messages")[$this->msgcount]);
+                $this->api->chat->broadcast($this->automessage->get("messages")[$this->msgcount]);
                 $m=$this->automessage->get("messages")[$this->msgcount];
                 if($this->msgcount != count($this->automessage->get("messages"))) $this->msgcount++;
             }
