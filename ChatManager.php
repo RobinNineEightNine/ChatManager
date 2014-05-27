@@ -3,7 +3,7 @@
 /*
 __PocketMine Plugin__
 name=ChatManager
-version=1.0b
+version=1.2
 description=Very simple chat manager.
 author=Lambo
 class=cmanager
@@ -14,7 +14,9 @@ class cmanager implements Plugin{
         private $api;
         private $msgcount = 0;
         private $mutedPlayers=array();
+        private $mutedPlayersData=array();
         private $noMsgPlayers=array();
+        private $players=array();
 
         public function __construct(ServerAPI $api, $server = false){
             $this->api = $api;
@@ -23,13 +25,17 @@ class cmanager implements Plugin{
         public function __destruct(){}
 
         public function init(){
+            $this->api->addHandler("player.quit",array($this,"onLeave"));
         	$this->api->addHandler("player.chat", array($this,"onChat"));
             $this->api->console->register("mute", "<player> Mute/unmute a player", array($this, "cmd"));
             $this->api->console->register("muted", "<shows a list of all muted players>", array($this, "cmd"));
             $this->api->console->register("unmuteall", "<unmutes all muted players>", array($this, "cmd"));
         	$this->config = new Config($this->api->plugin->configPath($this)."config.yml", CONFIG_YAML, array(
                     "min-length for messages" => 5,
+                    "log chat messages"=>false,
                     "max-length for messages" => 36,
+                    "prevent spam" =>true,
+                    "delay between each message (seconds)" =>8,
                     "console chat"=>true,
                     "multichat (separate chat for each world)"=> true,
         			"ranks"=> array(
@@ -73,23 +79,23 @@ class cmanager implements Plugin{
                                 "chat-format"=>"[@tag]@player: @message"
                             )
                 	    ),
-        				"donater"=> array(
+        				"donator"=> array(
         					"world"=>array(
-        					    "tag"=>"Donater",
+        					    "tag"=>"Donator",
                                 "chat-format"=>"[@tag]@player: @message"
         					),
                             "another world if multichat is enabled"=> array(
-                                "tag"=>"Donater",
+                                "tag"=>"Donator",
                                 "chat-format"=>"[@tag]@player: @message"
                             )
         				),
-                        "donater+"=> array(
+                        "donator+"=> array(
                             "world"=>array(
-                                "tag"=>"Donater+",
+                                "tag"=>"Donator+",
                                 "chat-format"=>"[@tag]@player: @message"
                             ),
                             "another world if multichat is enabled"=> array(
-                                "tag"=>"Donater+",
+                                "tag"=>"Donator+",
                                 "chat-format"=>"[@tag]@player: @message"
                             )
                         )
@@ -99,8 +105,8 @@ class cmanager implements Plugin{
         		 	        "moderator"=>array(),
         		 	        "admin"=>array(),
         		 	        "owner"=>array(),
-                            "donater"=>array(),
-                            "donater+"=>array()
+                            "donator"=>array(),
+                            "donator+"=>array()
         		  	    )
         			)
         	));
@@ -119,30 +125,73 @@ class cmanager implements Plugin{
             $this->api->schedule($this->automessage->get("delay (seconds)") * 20, array($this, "autoMessage"), array(), true);
         }
 
-        public function onChat(&$data){
+        public function onLeave($player){
+            if(isset($this->players[$player->username])) $this->players[$player->username]=array("msg"=>"","time"=>0);
+        }
+
+        public function onChat($data){
             $d=false;
             $player = $data["player"];
             $level = $player->entity->level;
+            if(!isset($this->players[$player->username])) $this->players[$player->username]=array("msg"=>"","time"=>0);
             if($this->config["multichat (separate chat for each world)"]){
                 if(!in_array($player->username,$this->mutedPlayers)){
                     if(strlen($data["message"]) <= $this->config["max-length for messages"]){
                         if(strlen($data["message"]) > $this->config["min-length for messages"]){
+                            $a = array("moderator","vip","admin","donator","donator+","owner");
                             if($this->strposa($data["message"],$this->blockedWords->get("blocked-words"))){
                                 $player->sendChat("Your message has been blocked.");
-                            }else foreach($this->api->player->getAll($level) as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$d=true;
+                            }else
+                            if((time() - $this->players[$player->username]["time"]) > $this->config["delay between each message (seconds)"] and $this->getRank($player->username)=="default"){
+                                if($this->players[$player->username]["msg"] != $data["message"]){
+                                    foreach($this->api->player->getAll($level) as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$this->players[$player->username]=array("time"=>time(),"msg"=>$data["message"]);$d=true;
+                                }else $player->sendChat("You cannot send the same message!");
+                            }else
+                            if($this->strposa($this->getRank($player->username),$a)){
+                                foreach($this->api->player->getAll() as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$this->players[$player->username]=array("time"=>time(),"msg"=>$data["message"]);$d=true;
+                            }else $player->sendChat("Please wait ".($this->config["delay between each message (seconds)"] - (time() - $this->players[$player->username]["time"]))." seconds.");
                         }else $player->sendChat("Your message is too short!");
                     }else $player->sendChat("Your message is too long!");
-                }else $player->sendChat("You are muted!");
+                }else
+                if($this->mutedPlayersData[$player->username]["time"]!=null){
+                    $a=time()-$this->mutedPlayersData[$player->username]["time"];
+                    if($a>$this->mutedPlayersData[$player->username]["mutetime"]){
+                        array_splice($this->mutedPlayers,array_search($player->username,$this->mutedPlayers),1);
+                        array_splice($this->mutedPlayersData,array_search($player->username,$this->mutedPlayersData),1);
+                        $player->sendChat("You have been un-muted.");
+                    }else{
+                        $player->sendChat("You are still muted for ".($this->mutedPlayersData[$player->username]["min"] - $a)." seconds.");
+                    }
+                }
             }else{
                 if(!in_array($player->username,$this->mutedPlayers)){
                     if(strlen($data["message"]) <= $this->config["max-length for messages"]){
                         if(strlen($data["message"]) > $this->config["min-length for messages"]){
+                            $a = array("moderator","vip","admin","donator","donator+","owner");
                             if($this->strposa($data["message"],$this->blockedWords->get("blocked-words"))){
                                 $player->sendChat("Your message has been blocked.");
-                            }else foreach($this->api->player->getAll() as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$d=true;
+                            }else
+                            if((time() - $this->players[$player->username]["time"]) > $this->config["delay between each message (seconds)"] and $this->getRank($player->username)=="default"){
+                                if($this->players[$player->username]["msg"] != $data["message"]){
+                                    foreach($this->api->player->getAll() as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$this->players[$player->username]=array("time"=>time(),"msg"=>$data["message"]);$d=true;
+                                }else $player->sendChat("You cannot send the same message!");
+                            }else
+                            if($this->strposa($this->getRank($player->username),$a)){
+                                foreach($this->api->player->getAll() as $p) $p->sendChat($this->formatText($level,$data["player"]->username,$data["message"]));$this->players[$player->username]=array("time"=>time(),"msg"=>$data["message"]);$d=true;
+                            }else $player->sendChat("Please wait ".($this->config["delay between each message (seconds)"] - (time() - $this->players[$player->username]["time"]))." seconds.");
                         }else $player->sendChat("Your message is too short!");
                     }else $player->sendChat("Your message is too long!");
-                }else $player->sendChat("You are muted!");
+                }else
+                if($this->mutedPlayersData[$player->username]["time"]!=null){
+                    $a=time()-$this->mutedPlayersData[$player->username]["time"];
+                    if($a>$this->mutedPlayersData[$player->username]["mutetime"]){
+                        array_splice($this->mutedPlayers,array_search($player->username,$this->mutedPlayers),1);
+                        array_splice($this->mutedPlayersData,array_search($player->username,$this->mutedPlayersData),1);
+                        $player->sendChat("You have been un-muted.");
+                    }else{
+                        $player->sendChat("You are still muted for ".($this->mutedPlayersData[$player->username]["min"] - $a)." seconds.");
+                    }
+                }
             }
             if(!in_array($player,$this->mutedPlayers)){
                 if($this->config["console chat"]){
@@ -171,8 +220,8 @@ class cmanager implements Plugin{
         	if(in_array($user,$this->config["in-ranks"]["ranks"]["moderator"])) $rank="moderator";
             if(in_array($user,$this->config["in-ranks"]["ranks"]["admin"])) $rank="admin";
             if(in_array($user,$this->config["in-ranks"]["ranks"]["owner"])) $rank="owner";
-            if(in_array($user,$this->config["in-ranks"]["ranks"]["donater"])) $rank="donater";
-            if(in_array($user,$this->config["in-ranks"]["ranks"]["donater+"])) $rank="donater+";
+            if(in_array($user,$this->config["in-ranks"]["ranks"]["donator"])) $rank="donator";
+            if(in_array($user,$this->config["in-ranks"]["ranks"]["donator+"])) $rank="donator+";
             return $rank;
         }
 
@@ -180,7 +229,7 @@ class cmanager implements Plugin{
             $m=null;
             if($this->automessage->get("enabled")){
                 if($this->msgcount == count($this->automessage->get("messages"))) $this->msgcount = 0;
-                $this->api->chat->broadcast($this->automessage->get("messages")[$this->msgcount]);
+                foreach($this->api->player->getAll() as $p) $p->sendChat($this->automessage->get("messages")[$this->msgcount]);
                 $m=$this->automessage->get("messages")[$this->msgcount];
                 if($this->msgcount != count($this->automessage->get("messages"))) $this->msgcount++;
             }
@@ -190,24 +239,29 @@ class cmanager implements Plugin{
         public function cmd($cmd, $p, $issuer){
             switch($cmd){
                 case "mute":
-                if(in_array($p[0],$this->mutedPlayers)){
-                    array_splice($this->mutedPlayers,array_search($p[0],$this->mutedPlayers),1);
-                    $issuer->sendChat("[ChatManager] ".$p[0]." has been un-muted.");
-                    console("[ChatManager] ".$issuer->username." has un-muted ".$p[0]);
-                }else{
-                    array_push($this->mutedPlayers,$p[0]);
-                    $issuer->sendChat("[ChatManager] ". $p[0] ." has been muted.");
-                    console("[ChatManager] ".$issuer->username." has muted ".$p[0]);
-                }
+                if(isset($p[0])){
+                    if(in_array($p[0],$this->mutedPlayers)){
+                        array_splice($this->mutedPlayers,array_search($p[0],$this->mutedPlayers),1);
+                        array_splice($this->mutedPlayersData,array_search($p[0],$this->mutedPlayersData),1);
+                        return "[ChatManager] ".$p[0]." has been un-muted.";
+                        if($issuer instanceof Player) console("[ChatManager] ".$issuer->username." has un-muted ".$p[0]);
+                        if($this->api->player->get($p[0]) instanceof Player) $p[0]->sendChat("[ChatManager] You have been un-muted.");
+                    }else{
+                        if(!isset($p[1])) $p[1] = 30;
+                        array_push($this->mutedPlayers,$p[0]);
+                        $this->mutedPlayersData[$p[0]]=array("time"=>time(),"mutetime"=>$p[1]*60,"min"=>$p[1]*60);
+                        return "[ChatManager] ". $p[0] ." has been muted for ".$p[1]." minutes.";
+                        if($issuer instanceof Player) console("[ChatManager] ".$issuer->username." has muted ".$p[0]);
+                        if($this->api->player->get($p[0]) instanceof Player) $p[0]->sendChat("[ChatManager] You have been muted for ".$p[1]." minutes.");
+                    }
+                }else return "[ChatManager] Usage: /mute <username> <minutes>";
                 case "muted":
-                for($i = 0; $i < count($this->mutedPlayers); $i++){
-                    $players .= $mutedPlayers[$i].", ";
-                }
-                $issuer->sendChat("[ChatManager] Muted players: ".$players);
+                return "[ChatManager] Muted players: ".implode(", ",$this->mutedPlayers);
                 case "unmuteall":
-                $issuer->sendChat("[ChatManager] ". count($this->mutedPlayers)." players have been un-muted.");
+                return "[ChatManager] ". count($this->mutedPlayers)." players have been un-muted.";
                 $this->mutedPlayers = array();
                 $this->api->chat->broadcast("[ChatManager] All players have been un-muted!");
+                break;
             }
         }
 
