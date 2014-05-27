@@ -11,6 +11,8 @@ The plugin includes:
 - MultiChat (separate chat for each world) (can be disabled)
 - Mute chat COMING SOON
 - Blacklist words (block words)
+- Prevent spam by blocking the same message being sent twice
+- Delay between messages
 - Split messages COMING SOON
 
 Once you install the plugin, there will be 3 configs:
@@ -23,7 +25,7 @@ Once you install the plugin, there will be 3 configs:
 
 Instructions:
 Commands:
-- /mute <player> (CASE SENSITIVE!) (works as a switch)
+- /mute <player> <minutes> (CASE SENSITIVE!) (works as a switch)
 - /muted (shows all currently muted players)
 - /unmuteall (unmutes all players) (once the server stops, all players are automatically unmuted too)
 Configs:
