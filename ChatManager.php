@@ -62,7 +62,7 @@ class cmanager implements Plugin{
         				"admin"=> array(
         					"world"=>array(
         					    "tag"=>"Admin",
-                                "chat-format"=>"[@tag]@player: @message"
+                                "chat-format"=>"[Robin989]@player: @message"
         					),
                             "another world if multichat is enabled"=> array(
                                 "tag"=>"Admin",
